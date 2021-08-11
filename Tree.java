@@ -38,9 +38,6 @@ public class Tree {
 					this.root.children.put(event, new TreeNode(event));
 
 				tracker.add(this.root.children.get(event));
-
-				// Spade.setProbabilities(this);
-				// this.printTree();
 			}
 		}
 	}

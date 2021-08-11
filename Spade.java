@@ -11,7 +11,7 @@ public class Spade {
 
 		String sequence = "";
 		String line = scnr.nextLine();
-		String[] attribute = line.split(","); // 23 sensors
+		String[] attribute = line.split(",");
 
 		for (int i = 5; i < attribute.length - 2; i++) {
 			if (attribute[i].equals("ON") || attribute[i].equals("PRESENT") || (!attribute[i].equals("0.0") && isDouble(attribute[i])))
