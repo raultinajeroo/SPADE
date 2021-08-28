@@ -78,29 +78,6 @@ public class Spade {
 	    }
 	}
 
-	public static Tree train(String trainSequence) {
-		Tree tree = new Tree();
-		ArrayList<String> trainEps = getEpisodes(trainSequence);
-		tree.genContext(trainEps);
-
-
-
-		double max = 0;
-		String highProb = "";
-
-		for (char key : tree.root.children.keySet()) {
-			TreeNode node = tree.root.children.get(key);
-			if (node.probability == max) {
-				highProb += ", " + node.event;
-			}
-			else if (node.probability > max) {
-				highProb = "" + node.event;
-				max = node.probability;
-			}
-		}
-		return tree;
-	}
-
 	public static ArrayList<String> getEpisodes(String sequence) {
 		ArrayList<String> arr = new ArrayList<String>();
 		for (int i = 0; i < sequence.length(); i++) {
