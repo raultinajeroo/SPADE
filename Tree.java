@@ -40,6 +40,28 @@ public class Tree {
 				tracker.add(this.root.children.get(event));
 			}
 		}
+		this.setRootFrequency();
+		this.setProbabilities();
+	}
+
+	public void setProbabilities() {
+		for (char key : this.root.children.keySet()) {
+			if (!this.root.children.isEmpty()) 
+				setProbabilitiesRec(this.root.children.get(key), (double)this.root.frequency);
+		}
+	}
+
+	private void setProbabilitiesRec(TreeNode node, double fr) {
+		if (!node.children.isEmpty()) 
+			setProbabilitiesRec(node.children.get(node.children.keySet().toArray()[0]), (double) node.frequency);
+		node.probability = node.frequency / fr;
+	}
+
+	public void setRootFrequency() {
+		this.root.frequency = 0;
+		for (char key : this.root.children.keySet()) {
+			this.root.frequency += this.root.children.get(key).frequency;
+		}
 	}
 
 	public void printTree() {

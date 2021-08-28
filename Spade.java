@@ -11,7 +11,7 @@ public class Spade {
 
 		String sequence = "";
 		String line = scnr.nextLine();
-		String[] attribute = line.split(",");
+		String[] attribute = line.split(","); // 23 sensors
 
 		for (int i = 5; i < attribute.length - 2; i++) {
 			if (attribute[i].equals("ON") || attribute[i].equals("PRESENT") || (!attribute[i].equals("0.0") && isDouble(attribute[i])))
@@ -37,26 +37,68 @@ public class Spade {
 			}
 		}
 
-		Tree t = new Tree();
-		// ArrayList<String> eps = getEpisodes(sequence);
-		ArrayList<String> test = getEpisodes("AaBbAaBb");
-		// t.genContext(eps);
-		t.genContext(test);
-		setProbabilities(t);
-		t.printTree();
+		test(sequence);
 	}
 
-	public static void setProbabilities(Tree tr) {
-		for (char key : tr.root.children.keySet()) {
-			if (!tr.root.children.isEmpty()) 
-				setProbabilitiesRec(tr.root.children.get(key), (double)tr.root.frequency);
+	public static void test(String sequence) {
+		Tree tree = new Tree();
+		ArrayList<String> eps = getEpisodes(sequence);
+		tree.genContext(eps);
+
+		TreeNode arr[] = new TreeNode[tree.root.children.keySet().size()];
+		int attmptCount = 0, correctAttmpt = 0;
+
+		int it = 0;
+		for (char key : tree.root.children.keySet())
+			arr[it++] = tree.root.children.get(key);
+		sort(arr);
+
+		for (char event : sequence.toCharArray()) {
+			for (TreeNode probTest : arr) {
+				attmptCount++;
+				if (probTest.event != event) {continue;}
+				correctAttmpt++;
+				break;
+			}
 		}
+
+		System.out.println("Correlation Coefficient: " + (double) correctAttmpt / attmptCount * 100 + "%");
 	}
 
-	public static void setProbabilitiesRec(TreeNode node, double fr) {
-		if (!node.children.isEmpty()) 
-			setProbabilitiesRec(node.children.get(node.children.keySet().toArray()[0]), (double) node.frequency);
-		node.probability = node.frequency / fr;
+	public static void sort(TreeNode[] nodes) {
+		// NEED TO IMPLEMENT BETTER SORTING - current : bubble sort
+	    for (int i = 0; i < nodes.length - 1; i++) {
+	    	for (int j = 0; j < nodes.length - i - 1; j++) {
+	    		if (nodes[j].probability > nodes[j+1].probability) {
+	    			TreeNode temp = nodes[j];
+                    nodes[j] = nodes[j+1];
+                    nodes[j+1] = temp;
+	    		}
+	    	}
+	    }
+	}
+
+	public static Tree train(String trainSequence) {
+		Tree tree = new Tree();
+		ArrayList<String> trainEps = getEpisodes(trainSequence);
+		tree.genContext(trainEps);
+
+
+
+		double max = 0;
+		String highProb = "";
+
+		for (char key : tree.root.children.keySet()) {
+			TreeNode node = tree.root.children.get(key);
+			if (node.probability == max) {
+				highProb += ", " + node.event;
+			}
+			else if (node.probability > max) {
+				highProb = "" + node.event;
+				max = node.probability;
+			}
+		}
+		return tree;
 	}
 
 	public static ArrayList<String> getEpisodes(String sequence) {

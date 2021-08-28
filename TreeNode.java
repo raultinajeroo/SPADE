@@ -8,7 +8,7 @@ public class TreeNode {
 	
 	public TreeNode() {
 		event = '*';
-		frequency = 1;
+		frequency = 0;
 		children = new HashMap<>();
 	}
 
