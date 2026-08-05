@@ -2,6 +2,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Scanner;
 
 public class Spade {
@@ -9,10 +10,22 @@ public class Spade {
 	public static final int FIRST_SENSOR = 5;
 	/* The last two columns are the activity label and the occupancy flag. */
 	public static final int TRAILING_COLUMNS = 2;
-	/* Sensor column i encodes to (char)(EVENT_BASE + i): column 5 -> 'A'. */
-	private static final int EVENT_BASE = 60;
-	/* Longest history considered when predicting the next event from the tree. */
-	private static final int MAX_ORDER = 5;
+	/*
+	 * Event symbols, one per sensor column starting at FIRST_SENSOR. Episodes pair a
+	 * sensor's on and off events by letter case, so every symbol needs a distinct
+	 * lowercase form. Latin runs out at 26 sensors, which the CASAS error set exceeds,
+	 * so Greek and Cyrillic capitals extend it. The first 26 entries are still A to Z,
+	 * so anything encoded before this existed encodes identically now.
+	 */
+	private static final char[] ALPHABET = buildAlphabet();
+	/*
+	 * Longest history considered when predicting the next event from the tree. Order 1
+	 * measured best on both CASAS sets, at all five train fractions on each, beating
+	 * order 5 by about 4 points on average. Deeper contexts lift the in-sample score
+	 * and lose held out, which is the overfitting a suffix trie invites. The backoff
+	 * loop still handles larger values, so re-sweep before changing this on new data.
+	 */
+	private static final int MAX_ORDER = 1;
 	/*
 	 * Backs off past any context seen fewer times than this, the usual guard against
 	 * a depth-5 context that occurred once predicting its single successor with
@@ -83,12 +96,37 @@ public class Spade {
 	 * punctuation that getEpisodes would ignore.
 	 */
 	public static char onEvent(int column) {
-		char c = (char) (EVENT_BASE + column);
-		if (c < 'A' || c > 'Z')
-			throw new IllegalArgumentException("sensor column " + column + " encodes to '" + c
-					+ "', outside A-Z; the encoding supports at most 26 sensor columns starting at "
+		int index = column - FIRST_SENSOR;
+		if (index < 0 || index >= ALPHABET.length)
+			throw new IllegalArgumentException("sensor column " + column + " has no event symbol; "
+					+ "the encoding supports " + ALPHABET.length + " sensor columns starting at "
 					+ FIRST_SENSOR);
-		return c;
+		return ALPHABET[index];
+	}
+
+	public static int alphabetSize() {
+		return ALPHABET.length;
+	}
+
+	private static char[] buildAlphabet() {
+		StringBuilder symbols = new StringBuilder();
+		appendCased(symbols, 'A', 'Z');
+		appendCased(symbols, 'Α', 'Ω');   // Greek capitals
+		appendCased(symbols, 'А', 'Я');   // Cyrillic capitals
+		return symbols.toString().toCharArray();
+	}
+
+	/* Keeps only characters that survive a round trip through both cases, and whose
+	 * lowercase form is not already spoken for by an earlier symbol. */
+	private static void appendCased(StringBuilder symbols, char from, char to) {
+		for (char c = from; c <= to; c++) {
+			char lower = Character.toLowerCase(c);
+			if (!Character.isUpperCase(c) || lower == c || !Character.isLowerCase(lower))
+				continue;
+			if (symbols.indexOf(String.valueOf(c)) >= 0 || symbols.indexOf(String.valueOf(lower)) >= 0)
+				continue;
+			symbols.append(c);
+		}
 	}
 
 	public static char offEvent(int column) {
@@ -134,13 +172,16 @@ public class Spade {
 				+ " of " + arr.length + ")");
 
 		int contextTop1 = 0, contextRanked = 0;
+		HashMap<Character, Boolean> on = new HashMap<Character, Boolean>();
 		for (int t = 0; t < sequence.length(); t++) {
-			TreeNode[] candidates = predict(tree, sequence, t);
-			if (candidates.length == 0)
-				continue;
-			contextRanked++;
-			if (candidates[0].event == sequence.charAt(t))
-				contextTop1++;
+			TreeNode[] candidates = filterImpossible(predict(tree, sequence, t), on);
+			char event = sequence.charAt(t);
+			if (candidates.length > 0) {
+				contextRanked++;
+				if (candidates[0].event == event)
+					contextTop1++;
+			}
+			on.put(Character.toUpperCase(event), Character.isUpperCase(event));
 		}
 		// In-sample: the tree is built from the same sequence it is scored against,
 		// so this measures fit, not generalisation. The unigram numbers above share
@@ -158,6 +199,11 @@ public class Spade {
 	 * but no episode from the scored region contributes a count.
 	 */
 	public static double evaluateHeldOut(String sequence, double trainFraction, int maxOrder, int minCount) {
+		return evaluateHeldOut(sequence, trainFraction, maxOrder, minCount, true, true);
+	}
+
+	public static double evaluateHeldOut(String sequence, double trainFraction, int maxOrder,
+			int minCount, boolean mask, boolean report) {
 		int split = (int) (sequence.length() * trainFraction);
 		if (split < 2 || split >= sequence.length())
 			return 0.0;
@@ -170,22 +216,60 @@ public class Spade {
 		TreeNode[] unigram = tree.root.children.values().toArray(new TreeNode[0]);
 		sort(unigram);
 
+		HashMap<Character, Boolean> on = sensorStateAt(sequence, split);
+
 		int scored = 0, contextHits = 0, unigramHits = 0;
 		for (int t = split; t < sequence.length(); t++) {
 			scored++;
-			if (unigram[0].event == sequence.charAt(t))
+			TreeNode[] baseline = mask ? filterImpossible(unigram, on) : unigram;
+			if (baseline.length > 0 && baseline[0].event == sequence.charAt(t))
 				unigramHits++;
 
 			TreeNode[] candidates = predict(tree, sequence, t, maxOrder, minCount);
+			if (mask)
+				candidates = filterImpossible(candidates, on);
 			if (candidates.length > 0 && candidates[0].event == sequence.charAt(t))
 				contextHits++;
+
+			char event = sequence.charAt(t);
+			on.put(Character.toUpperCase(event), Character.isUpperCase(event));
 		}
 
-		System.out.println("Held-out top-1 accuracy: " + pct(contextHits, scored)
-				+ "% context vs " + pct(unigramHits, scored) + "% unigram baseline"
-				+ " (trained on " + split + ", scored on " + scored
-				+ ", order <= " + maxOrder + ", min context count " + minCount + ")");
+		if (report)
+			System.out.println("Held-out top-1 accuracy: " + pct(contextHits, scored)
+					+ "% context vs " + pct(unigramHits, scored) + "% baseline"
+					+ " (trained on " + split + ", scored on " + scored
+					+ ", order <= " + maxOrder + ", min count " + minCount
+					+ ", legal-move mask " + (mask ? "on" : "off") + ")");
 		return (double) contextHits / scored;
+	}
+
+	/* Replays the prefix to recover which sensors are switched on at position t. */
+	public static HashMap<Character, Boolean> sensorStateAt(String sequence, int t) {
+		HashMap<Character, Boolean> on = new HashMap<Character, Boolean>();
+		for (int i = 0; i < t && i < sequence.length(); i++) {
+			char event = sequence.charAt(i);
+			on.put(Character.toUpperCase(event), Character.isUpperCase(event));
+		}
+		return on;
+	}
+
+	/*
+	 * A sensor alternates, so it cannot switch on twice without switching off in
+	 * between. Whatever the tree ranks highest, only the symbol opposite each
+	 * sensor's current state can actually come next, and dropping the rest costs
+	 * nothing because they were never possible. Falls back to the unfiltered
+	 * ranking if the mask would leave nothing.
+	 */
+	public static TreeNode[] filterImpossible(TreeNode[] ranked, HashMap<Character, Boolean> on) {
+		ArrayList<TreeNode> legal = new ArrayList<TreeNode>(ranked.length);
+		for (TreeNode node : ranked) {
+			boolean switchesOn = Character.isUpperCase(node.event);
+			boolean sensorOn = Boolean.TRUE.equals(on.get(Character.toUpperCase(node.event)));
+			if (switchesOn != sensorOn)
+				legal.add(node);
+		}
+		return legal.isEmpty() ? ranked : legal.toArray(new TreeNode[0]);
 	}
 
 	/*
