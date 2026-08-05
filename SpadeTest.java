@@ -37,8 +37,30 @@ public class SpadeTest {
 		eq("offEvent(5) is 'a'", 'a', Spade.offEvent(5));
 		eq("onEvent(27) is 'W'", 'W', Spade.onEvent(27));
 		eq("onEvent(30) is 'Z'", 'Z', Spade.onEvent(30));
-		check("onEvent(31) is rejected", throwsIllegalArgument(31));
 		check("onEvent(4) is rejected", throwsIllegalArgument(4));
+		check("column past the alphabet is rejected",
+				throwsIllegalArgument(5 + Spade.alphabetSize()));
+
+		// The first 26 symbols must stay A-Z or every sequence encoded before the
+		// alphabet was widened would decode differently.
+		boolean latinIntact = true;
+		for (int i = 0; i < 26; i++)
+			latinIntact &= Spade.onEvent(5 + i) == (char) ('A' + i);
+		check("first 26 symbols are still A-Z", latinIntact);
+		check("alphabet covers the 28-sensor error set", Spade.alphabetSize() >= 28);
+
+		// Episodes pair on/off by case, so symbols and their lowercase forms must
+		// all be distinct from one another.
+		java.util.HashSet<Character> symbols = new java.util.HashSet<Character>();
+		boolean casePairs = true;
+		for (int i = 0; i < Spade.alphabetSize(); i++) {
+			char upper = Spade.onEvent(5 + i);
+			char lower = Spade.offEvent(5 + i);
+			casePairs &= Character.isUpperCase(upper) && Character.isLowerCase(lower) && upper != lower;
+			casePairs &= symbols.add(upper) && symbols.add(lower);
+		}
+		check("every symbol is a distinct upper/lower pair", casePairs);
+		eq("alphabet has no collisions", Spade.alphabetSize() * 2, symbols.size());
 
 		check("active values", Spade.isActive("ON") && Spade.isActive("PRESENT") && Spade.isActive("2.5"));
 		check("inactive values", Spade.isInactive("OFF") && Spade.isInactive("ABSENT") && Spade.isInactive("0.0"));
@@ -59,7 +81,7 @@ public class SpadeTest {
 
 		eq("empty file yields empty sequence", "", Spade.encodeSequence(csv()));
 
-		File wide = csv(row(5 + 27 + 2));
+		File wide = csv(row(5 + Spade.alphabetSize() + 1 + 2));
 		check("too many sensor columns is rejected", throwsIllegalArgument(wide));
 	}
 
